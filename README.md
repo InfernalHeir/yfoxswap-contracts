@@ -1,6 +1,6 @@
 ## YFox Exchange
 
-> Yfox is simple intergration of uniswap AMM Protocal with their inherited smart contracts.
+> Yfox is simple intergration of uniswap AMM Protocol with their inherited smart contracts.
 
 # Contracts
 ## YFOX Exchange Contract
