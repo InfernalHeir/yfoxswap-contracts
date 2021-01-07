@@ -1,20 +1,26 @@
-// SPDX-License-Identifier: MIT;
-
+// SPDX-License-Identifier: MIT;                                
+                
 pragma solidity ^0.6.6;
 
+// abstracts contracts and interfaces
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import  "@uniswap/v2-periphery/contracts/libraries/UniswapV2Library.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract YFOXswap {
+contract YFOXswap is ReentrancyGuard {
    
+   // router rinkeby address
    address internal constant UNISWAP_ROUTER_ADDRESS = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D; 
+   
+   // factory on rinkeby
    address internal constant factory = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
-  
-
-   // constructor set the contract router address
+   
+   // state var for router instance 
    IUniswapV2Router02 internal router; 
-   constructor() public {       
+
+   // constructor set the contract router address 
+   constructor() public { 
     // uniswap router instance
     router =  IUniswapV2Router02(UNISWAP_ROUTER_ADDRESS);  
    }
@@ -24,47 +30,50 @@ contract YFOXswap {
 
    // *** swap implementation ****
 
-   // first case When YFOX as Input and ERC20 as Output
+   /**
+   *  first case When YFOX as Input and ERC20 as Output.
+   **/
 
    function swapYFOXWithAnyERC20(
        uint _amountIn,
+       uint _amountOutMin,
        address[] memory _tokenAddresses,
        address _swapCaller,
        uint _timeline
        ) public returns( uint[] memory amounts) {
-           require(_amountIn > 0, "YFOXswap : invalid input amount");
-           (uint reserveIn, uint reserveOut) = UniswapV2Library.getReserves(factory, _tokenAddresses[0],_tokenAddresses[1]);
-           // calculate getAmountsOut
-            amounts = UniswapV2Library.getAmountsOut(_amountIn,_tokenAddresses);
-           // now call the UniswapV2Router02::swapExactTokensForTokens
-           router.swapExactTokensForTokens(
+           require(_amountIn > 0, "ERROR: Invalid Input!");
+           
+           //  give access approve input token erc20 for router contract.
+           require(IERC20(_tokenAddresses[0]).transferFrom(msg.sender,address(this),_amountIn), "ERROR: Can't Transact!");
+           require(IERC20(_tokenAddresses[0]).approve(address(UNISWAP_ROUTER_ADDRESS),_amountIn),"ERROR: Approve Failed!");
+           
+           amounts = router.swapExactTokensForTokens(
                _amountIn,
-               amounts[amounts.length - 1],
+               _amountOutMin,
                _tokenAddresses,
                _swapCaller,
                _timeline
            );
-
-
-
    }
 
-   // second case When YFOX as Output and ERC20 as Input
+   /**
+   * second case When YFOX as Output and ERC20 as Input.
+   **/ 
 
    function swapAnyERC20WithYFOX(
        uint _amountOut,
+       uint _amountInMax,
        address[] memory _tokenAddresses,
        address _swapCaller,
        uint _timeline
        ) public returns( uint[] memory amounts) {
-           require(_amountOut > 0, "YFOXswap : invalid output amount");
-           (uint reserveIn, uint reserveOut) = UniswapV2Library.getReserves(factory, _tokenAddresses[0],_tokenAddresses[1]);
-           // calculate getAmountsOut
-           amounts = UniswapV2Library.getAmountsIn(_amountOut,_tokenAddresses);
-           // now call the UniswapV2Router02::swapExactTokensForTokens
-           router.swapTokensForExactTokens(
+           require(_amountOut > 0, "ERORR: Invalid Output!");
+           require(IERC20(_tokenAddresses[0]).transferFrom(msg.sender,address(this),_amountInMax), "ERROR: Can't Transact!");
+           require(IERC20(_tokenAddresses[0]).approve(address(UNISWAP_ROUTER_ADDRESS),_amountInMax),"ERROR: Approve Failed!");
+
+        amounts = router.swapTokensForExactTokens(
                _amountOut,
-               amounts[0],
+               _amountInMax,
                _tokenAddresses,
                _swapCaller,
                _timeline
@@ -76,18 +85,17 @@ contract YFOXswap {
    //  case 1 swap ether when user entered input ether amount on Input Param call this func on frontend.
    function swapInputETHForYFOX(
        address[] calldata  _tokenAddresses,
+       uint _amountOutMin,
        uint _timeline
    ) 
    external 
    payable 
    returns( uint[] memory amounts) {
-       require(msg.value > 0, "YFOXswap : Invalid ETH");
-       require(_tokenAddresses[0] != router.WETH(),"YFOXswap: Invalid Input Address");
-       (uint reserveIn, uint reserveOut) = UniswapV2Library.getReserves(factory, _tokenAddresses[0],_tokenAddresses[1]);
+       require(msg.value > 0, "ERROR : Invalid ETH");
+       require(_tokenAddresses[0] == router.WETH(),"ERROR: Invalid Input Address");
        
-        amounts = UniswapV2Library.getAmountsOut(msg.value,_tokenAddresses);
-        router.swapExactETHForTokens{value: msg.value}(
-            amounts[_amounts.length - 1],
+        amounts = router.swapExactETHForTokens{value: msg.value}(
+            _amountOutMin,
             _tokenAddresses,
             msg.sender,
             _timeline            
@@ -96,20 +104,19 @@ contract YFOXswap {
 
    //  case2 swap ether when user entered yfox as input amount and getAmountsIn
    function swapOutputETHForYFOX(
-       uint _yfoxAmount,
+       uint _amountOut,
+       uint _amountInMax,
        address[] calldata  _tokenAddresses,
        uint _timeline
    ) 
    external 
    payable 
    returns( uint[] memory amounts) {
-       require(msg.value > 0, "YFOXswap : Invalid ETH");
-       require(_tokenAddresses[0] != router.WETH(),"YFOXswap: Invalid Input Address");
-       (uint reserveIn, uint reserveOut) = UniswapV2Library.getReserves(factory, _tokenAddresses[0],_tokenAddresses[1]);
-       
-         amounts = UniswapV2Library.getAmountsIn(msg.value,_tokenAddresses);
-         amounts  = router.swapETHForExactTokens{value: amounts[0]}(
-            _yfoxAmount,
+       require(msg.value > 0, "ERROR : Invalid ETH");
+       require(_tokenAddresses[0] == router.WETH(),"ERROR: Invalid Input Address");
+      
+        amounts  = router.swapETHForExactTokens{value: _amountInMax}(
+            _amountOut,
             _tokenAddresses,
             msg.sender,
             _timeline            
@@ -118,20 +125,18 @@ contract YFOXswap {
 
    //  case3 swap yfox when user entered yfox as input amount and getAmountsOut
    function swapInputYFOXForETH(
-       uint _yfoxAmountIn,
+       uint _amountIn,
+       uint _amountOutMin,
        address[] calldata  _tokenAddresses,
        uint _timeline
    ) 
    external
    returns( uint[] memory amounts) {
-       require(msg.value > 0, "YFOXswap : Invalid ETH");
-       require(_tokenAddresses[1] != router.WETH(),"YFOXswap: Invalid Input Address");
-       (uint reserveIn, uint reserveOut) = UniswapV2Library.getReserves(factory, _tokenAddresses[0],_tokenAddresses[1]);
-       
-         amounts = UniswapV2Library.getAmountsOut(_yfoxAmountIn,_tokenAddresses);
-         router.swapExactTokensForETH(
-            _yfoxAmountIn,
-            amounts[1],
+       require(_tokenAddresses[1] == router.WETH(),"ERROR: Invalid Input Address");
+
+    amounts = router.swapExactTokensForETH(
+            _amountIn,
+            _amountOutMin,
             _tokenAddresses,
             msg.sender,
             _timeline            
@@ -140,20 +145,19 @@ contract YFOXswap {
 
    //  case 4 swap yfox when user entered yfox as output amount and getAmountsIn
    function swapOutputYFOXForETH(
-       uint _yfoxAmountOut,
+       uint _amountOut,
+       uint _amountInMax,
        address[] calldata  _tokenAddresses,
        uint _timeline
    ) 
    external 
    returns( uint[] memory amounts) {
-       require(msg.value > 0, "YFOXswap : Invalid ETH");
-       require(_tokenAddresses[1] != router.WETH(),"YFOXswap: Invalid Input Address");
-       (uint reserveIn, uint reserveOut) = UniswapV2Library.getReserves(factory, _tokenAddresses[0],_tokenAddresses[1]);
-       
-        amounts = UniswapV2Library.getAmountsIn(_yfoxAmountOut,_tokenAddresses);
-        router.swapExactTokensForETH(
-            _yfoxAmountOut,
-            amounts[0],
+       require(_tokenAddresses[1] == router.WETH(),"YFOXswap: Invalid Input Address");
+       require(IERC20(_tokenAddresses[0]).transferFrom(msg.sender,address(this),_amountInMax), "ERROR: Can't Transact!");
+        require(IERC20(_tokenAddresses[0]).approve(address(UNISWAP_ROUTER_ADDRESS),_amountInMax),"ERROR: Approve Failed!"); 
+     amounts = router.swapTokensForExactETH(
+            _amountOut,
+            _amountInMax,
             _tokenAddresses,
             msg.sender,
             _timeline            
@@ -169,8 +173,14 @@ contract YFOXswap {
        address _creator,
        uint _timeline
    ) public returns (uint amountA, uint amountB, uint liquidity) {
-       require(_token0 != address(0), "YFOXswap: wut?");
-       require(_token1 != address(0), "YFOXswap: wut?");
+       require(_token0 != address(0), "ERROR: wut?");
+       require(_token1 != address(0), "ERROR: wut?");
+       
+       require(IERC20(_token0).transferFrom(msg.sender,address(this),_amountADesired), "ERROR: Can't Transact!");
+       require(IERC20(_token1).transferFrom(msg.sender,address(this),_amountBDesired), "ERROR: Can't Transact!");
+       
+        require(IERC20(_token0).approve(address(UNISWAP_ROUTER_ADDRESS),_amountADesired),"ERROR: Approve Failed!"); 
+        require(IERC20(_token1).approve(address(UNISWAP_ROUTER_ADDRESS),_amountADesired),"ERROR: Approve Failed!"); 
        (amountA,amountB,liquidity) = router.addLiquidity(
            _token0,
            _token1,
@@ -191,6 +201,8 @@ contract YFOXswap {
        uint _timeline
    ) public payable returns (uint amountToken, uint amountETH, uint liquidity) {
        require(_poolToken != address(0), "YFOXswap: wut?");
+       require(IERC20(_poolToken).transferFrom(msg.sender,address(this),_amountTokenDesired), "ERROR: Can't Transact!");
+        require(IERC20(_poolToken).approve(address(UNISWAP_ROUTER_ADDRESS),_amountTokenDesired),"ERROR: Approve Failed!");
        (amountToken,amountETH,liquidity) = router.addLiquidityETH{value: msg.value}(
            _poolToken,
            _amountTokenDesired,
@@ -205,15 +217,15 @@ contract YFOXswap {
    // removeLiquidity of any erc20 by giving liquidity amount and tokenDetails
 
    function removeLiquidityFromPoolsWithPermit(
-  address _token0,
-  address _token1,
-  uint _liquidity,
-  address _caller,
-  uint _timeline,
-  bool approveMax, uint8 v, bytes32 r, bytes32 s
+   address _token0,
+   address _token1,
+    uint _liquidity,
+   address _caller,
+   uint _timeline,
+   bool _approveMax, uint8 v, bytes32 r, bytes32 s
    ) public returns (uint amountA, uint amountB) {
-        require(_token0 != address(0), "YFOXswap: wut token0 ?");
-       require(_token1 != address(0), "YFOXswap: wut token1 ?");
+        require(_token0 != address(0), "ERROR: wut token0 ?");
+       require(_token1 != address(0), "ERROR: wut token1 ?");
        (amountA, amountB) = router.removeLiquidityWithPermit(
            _token0,
            _token1,
@@ -222,7 +234,7 @@ contract YFOXswap {
            1,
            _caller,
            _timeline,
-           false,
+           _approveMax,
            v,
            r,
            s
@@ -236,23 +248,42 @@ contract YFOXswap {
   uint _liquidity,
   address _caller,
   uint _timeline,
-  bool approveMax, uint8 v, bytes32 r, bytes32 s
-   ) public returns (uint amountA, uint amountB) {
-        require(_token0 != address(0), "YFOXswap: wut token0 ?");
-       require(_token1 != address(0), "YFOXswap: wut token1 ?");
-       (amountA, amountB) = router.removeLiquidityWithPermit(
-           _token0,
-           _token1,
+  bool _approveMax, uint8 v, bytes32 r, bytes32 s
+   ) public returns (uint amountToken, uint amountETH) {
+        require(_poolToken != address(0), "YFOXswap: wut token0 ?");
+       (amountToken, amountETH) = router.removeLiquidityETHWithPermit(
+           _poolToken,
            _liquidity,
            1,
            1,
            _caller,
            _timeline,
-           false,
+           _approveMax,
            v,
            r,
            s
        );   
    }
+
+   // get some Utility Func of @Uniswap
+    
+  function getReservedPoolValue(
+      address _tokenA,
+       address _tokenB
+       ) external view returns( uint reserveA, uint reserveB) {
+          (reserveA,reserveB) = UniswapV2Library.getReserves(factory,_tokenA,_tokenB); 
+  }
+
+ // get value of another token when adding Liquidity on frontend.   
+  function liquidtyQuotes(
+      uint _amount, 
+      address[] calldata _pairs
+      ) external 
+         view 
+         returns(uint amountB) {
+      (uint reserveA,uint reserveB) = UniswapV2Library.getReserves(factory,_pairs[0],_pairs[1]);
+      amountB = UniswapV2Library.quote(_amount,reserveA,reserveB);
+  }  
+
 
 }
