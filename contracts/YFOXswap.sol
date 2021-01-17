@@ -3,23 +3,21 @@
 pragma solidity ^0.6.6;
 
 // abstracts contracts and interfaces
-import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import  "@uniswap/v2-periphery/contracts/libraries/UniswapV2Library.sol";
+import "./interfaces/IUniswapV2Router02.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract YFOXswap is ReentrancyGuard {
    
-   // router rinkeby address
+   // UNISWAP V2 Rinkeby Address
    address internal constant UNISWAP_ROUTER_ADDRESS = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D; 
    
-   // factory on rinkeby
-   address internal constant factory = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
    
    // state var for router instance 
    IUniswapV2Router02 internal router; 
 
    // constructor set the contract router address 
+   
    constructor() public { 
     // uniswap router instance
     router =  IUniswapV2Router02(UNISWAP_ROUTER_ADDRESS);  
@@ -34,6 +32,9 @@ contract YFOXswap is ReentrancyGuard {
    *  first case When YFOX as Input and ERC20 as Output.
    **/
 
+    function getWETHAddress() public view returns(address) {
+        return router.WETH();
+    }
    function swapYFOXWithAnyERC20(
        uint _amountIn,
        uint _amountOutMin,
@@ -87,9 +88,10 @@ contract YFOXswap is ReentrancyGuard {
        address[] calldata  _tokenAddresses,
        uint _amountOutMin,
        uint _timeline
-   ) 
+   )
    external 
-   payable 
+   payable
+   nonReentrant() 
    returns( uint[] memory amounts) {
        require(msg.value > 0, "ERROR : Invalid ETH");
        require(_tokenAddresses[0] == router.WETH(),"ERROR: Invalid Input Address");
@@ -99,7 +101,10 @@ contract YFOXswap is ReentrancyGuard {
             _tokenAddresses,
             msg.sender,
             _timeline            
-       );    
+       );
+
+       // return left over eth to the user
+       msg.sender.transfer(address(this).balance);    
    }
 
    //  case2 swap ether when user entered yfox as input amount and getAmountsIn
@@ -110,7 +115,8 @@ contract YFOXswap is ReentrancyGuard {
        uint _timeline
    ) 
    external 
-   payable 
+   payable
+   nonReentrant() 
    returns( uint[] memory amounts) {
        require(msg.value > 0, "ERROR : Invalid ETH");
        require(_tokenAddresses[0] == router.WETH(),"ERROR: Invalid Input Address");
@@ -120,7 +126,8 @@ contract YFOXswap is ReentrancyGuard {
             _tokenAddresses,
             msg.sender,
             _timeline            
-       );    
+       );
+       msg.sender.transfer(address(this).balance);    
    }
 
    //  case3 swap yfox when user entered yfox as input amount and getAmountsOut
@@ -199,7 +206,7 @@ contract YFOXswap is ReentrancyGuard {
        address _poolToken,
        uint _amountTokenDesired,
        uint _timeline
-   ) public payable returns (uint amountToken, uint amountETH, uint liquidity) {
+   ) public payable nonReentrant() returns (uint amountToken, uint amountETH, uint liquidity) {
        require(_poolToken != address(0), "YFOXswap: wut?");
        require(IERC20(_poolToken).transferFrom(msg.sender,address(this),_amountTokenDesired), "ERROR: Can't Transact!");
         require(IERC20(_poolToken).approve(address(UNISWAP_ROUTER_ADDRESS),_amountTokenDesired),"ERROR: Approve Failed!");
@@ -211,6 +218,9 @@ contract YFOXswap is ReentrancyGuard {
            msg.sender,
            _timeline
        );
+
+       // return leftover ethers 
+       msg.sender.transfer(address(this).balance);
 
    }
 
@@ -264,26 +274,5 @@ contract YFOXswap is ReentrancyGuard {
            s
        );   
    }
-
-   // get some Utility Func of @Uniswap
-    
-  function getReservedPoolValue(
-      address _tokenA,
-       address _tokenB
-       ) external view returns( uint reserveA, uint reserveB) {
-          (reserveA,reserveB) = UniswapV2Library.getReserves(factory,_tokenA,_tokenB); 
-  }
-
- // get value of another token when adding Liquidity on frontend.   
-  function liquidtyQuotes(
-      uint _amount, 
-      address[] calldata _pairs
-      ) external 
-         view 
-         returns(uint amountB) {
-      (uint reserveA,uint reserveB) = UniswapV2Library.getReserves(factory,_pairs[0],_pairs[1]);
-      amountB = UniswapV2Library.quote(_amount,reserveA,reserveB);
-  }  
-
 
 }
